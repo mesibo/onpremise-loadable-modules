@@ -36,3 +36,4 @@ sudo docker run  -v /certs:/certs -v  /usr/lib64/mesibo/:/usr/lib64/mesibo/ \
          -v /etc/mesibo:/etc/mesibo -net host -d mesibo/mesibo <app token> 
 ```
 
+Refer [Mesibo Modules Documentation](https://mesibo.com/documentation/on-premise/loadable-modules/) for more details.

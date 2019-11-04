@@ -1,6 +1,8 @@
 # Filter Module
 
-This repository contains the source code for the Filter Module. This is an example of a simple profanity filter to drop messages containing profanity. You can download the source and compile it to obtain the module- a shared library file. Also, you can load the pre-compiled module which is provided as `mesibo_mod_filter.so`
+This repository contains the source code for the Filter Module to monitor and moderate all the messages between your users (for example, to drop messages containing profanity).
+
+In this filter example, we will implement a simple profanity filter to drop messages containing profanity. You can download the source and compile it to obtain the module- a shared library file. 
 
 Refer to the [Skeleton Module](https://github.com/Nagendra1997/mesibo-documentation/blob/master/skeleton.md) for a basic understanding of how Mesibo Modules work. The complete documentation for Mesibo Modules is available [here](https://mesibo.com/documentation/on-premise/loadable-modules/)
 
