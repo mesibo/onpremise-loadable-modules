@@ -17,24 +17,19 @@ The complete documentation for Mesibo Modules is available [here](https://mesibo
 - [Javascript](https://github.com/mesibo/onpremise-loadable-modules/tree/master/js) JavaScript Module to load and call functions in [ECMAScript](http://www.ecma-international.org/ecma-262/5.1/). Sample Javascript Module uses the embeddable JS Engine [Duktape](https://duktape.org)
 
 ## Compiling Modules
-To compile a Mesibo module, edit the sample MakeFile provided in each repo. Change the MODULE to <module name>.
-
-```
-MODULE = <module name>
-```
-
-Run make from your source directory.
+To compile a Mesibo module, go to module directory and run make from the module directory.
 
 ```
 sudo make
 ```
-On the successful build of your module, verify that the target path should contain your shared library. 
-Example, `/usr/lib64/mesibo/mesibo_mod_<module name>.so`
+
+On the successful build of your module, verify that the target path should contain your shared library. Example, `/usr/lib64/mesibo/mesibo_mod_<module name>.so`
 
 ## Loading Modules
 To load a Mesibo module provide the configuration in `/etc/mesibo/mesibo.conf`. You can copy the configuration from `sample.conf` provided in each repo, into `/etc/mesibo/mesibo.conf` and modify values accordingly. 
 
 Mount the directory `/path/to/mesibo_mod_<module name>.so` containing your module(.so file) while running the mesibo container. For example, if the module is located at `/usr/lib64/mesibo/`
+
 
 ```
 sudo docker run  -v /certs:/certs -v  /usr/lib64/mesibo/:/usr/lib64/mesibo/ \
