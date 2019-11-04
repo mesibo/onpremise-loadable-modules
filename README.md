@@ -8,16 +8,16 @@ The complete documentation for Mesibo Modules is available [here](https://mesibo
 
 - [Skeleton](https://github.com/mesibo/onpremise-loadable-modules/tree/master/skeleton) Barebones version of a Mesibo Module that explains the usage of different aspects of the module, various callback functions, callable functions, and utilities.
 
-- [Filter](https://github.com/mesibo/onpremise-loadable-modules/tree/master/filter) Profanity filter module to drop messages containing profanity
+- [Filter](https://github.com/mesibo/onpremise-loadable-modules/tree/master/filter) Filter module to monitor and moderate all the messages between your users (for example, to drop messages containing profanity)
 
-- [Translate](https://github.com/mesibo/onpremise-loadable-modules/tree/master/translate) Translator module to translate each message before sending it to destination. Sample translate Module provides an example using [Google Translate](https://cloud.google.com/translate)
+- [Translate](https://github.com/mesibo/onpremise-loadable-modules/tree/master/translate) Translator module to translate each message before sending it to destination. Sample translate Module uses [Google Translate](https://cloud.google.com/translate) for translation.
 
-- [Chatbot](https://github.com/mesibo/onpremise-loadable-modules/tree/master/chatbot) Chatbot module to analyze messages using various AI and machine learning tools like Tensorflow, Dialogflow, etc. and send an automatic reply. Sample Chatbot Module provides an example using [Dialogflow](https://dialogflow.com)
+- [Chatbot](https://github.com/mesibo/onpremise-loadable-modules/tree/master/chatbot) Chatbot module to analyze messages using various AI and machine learning tools like Tensorflow, Dialogflow, etc. and send an automatic reply. Sample Chatbot Module uses [Dialogflow](https://dialogflow.com)
 
 - [Javascript](https://github.com/mesibo/onpremise-loadable-modules/tree/master/js) JavaScript Module to load and call functions in [ECMAScript](http://www.ecma-international.org/ecma-262/5.1/). Sample Javascript Module uses the embeddable JS Engine [Duktape](https://duktape.org)
 
 ## Compiling Modules
-To compile a Mesibo module, open the sample MakeFile provided in each repo. Change the MODULE to <module name>.
+To compile a Mesibo module, edit the sample MakeFile provided in each repo. Change the MODULE to <module name>.
 
 ```
 MODULE = <module name>
