@@ -5,7 +5,7 @@
  * Sample translate Module provides an example using Google Translate 
  * https://cloud.google.com/translate
  *
- **/
+**/
 
 /** Copyright (c) 2019 Mesibo
  * https://mesibo.com
@@ -41,7 +41,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * Documentation
- * https://mesibo.com/documentation/loadable-modules
+ * https://mesibo.com/documentation/on-premise/loadable-modules
  *
  * Source Code Repository
  * https://github.com/mesibo/onpremise-loadable-modules
@@ -62,23 +62,23 @@
 /**
  * Sample Translate Module Configuration
  * Refer sample.conf
- */
+**/
 typedef struct translate_config_s {
 	/* To be configured in module configuration file */
-	char* access_token;
-	char* endpoint;
-	char* source;
-	char* target;
+	const char* access_token;
+	const char* endpoint;
+	const char* source;
+	const char* target;
 	int log;
 
 	/* To be configured by Google Translate init function */
-	char* post_url;
 	char* auth_bearer;
 	module_http_option_t* translate_http_opt;
 
 } translate_config_t;
 
-typedef struct message_context_s {
+/**Message Context **/
+typedef struct http_context_s {
 	mesibo_module_t *mod;
 	mesibo_message_params_t *params;
 	char *from;
@@ -88,15 +88,15 @@ typedef struct message_context_s {
 	int datalen;
 
 	char* post_data; //For cleanup after HTTP request is complete
-} message_context_t;
+} http_context_t;
 
 
-void mesibo_translate_destroy_message_context(message_context_t* mc){
-	free(mc->params);
+void mesibo_translate_destroy_http_context(http_context_t* mc){
         free(mc->from);
         free(mc->to);
-	free(mc->post_data);
-	free(mc);
+	free(mc->params);
+        free(mc->post_data);
+        free(mc);
 }
 
 /**
@@ -104,40 +104,39 @@ void mesibo_translate_destroy_message_context(message_context_t* mc){
  * Response from Google Translate is recieved through this callback
  * Once the complete response is received the translated message is sent to the recipient
  */
-
 static int translate_http_callback(void *cbdata, mesibo_int_t state,
 		mesibo_int_t progress, const char *buffer,
 		mesibo_int_t size) {
-	message_context_t *b = (message_context_t *)cbdata;
+	http_context_t *b = (http_context_t *)cbdata;
 	mesibo_module_t *mod = b->mod;
 	translate_config_t* tc = (translate_config_t*)mod->ctx;
 	mesibo_message_params_t *params = b->params;
 
-	if (progress < 0) {
-		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE,  "%s : Error in http callback \n", mod->name);
-		mesibo_translate_destroy_message_context(b);
+	if (0 > progress) {
+		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE,  "Error in http callback \n");
+		mesibo_translate_destroy_http_context(b);
 		return MESIBO_RESULT_FAIL;
 	}
 
-	if (state != MODULE_HTTP_STATE_RESPBODY) {
+	if (MODULE_HTTP_STATE_RESPBODY != state) {
 		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "Exit http callback\n");
 		if(size)
 			mesibo_log(mod, tc->log,  "%.*s \n", size, buffer);
 		return MESIBO_RESULT_OK;
 	}
 
-	if ((progress > 0) && (state == MODULE_HTTP_STATE_RESPBODY)) {
-		if(b->datalen + size > HTTP_BUFFER_LEN){
+	if ((0 < progress) && (MODULE_HTTP_STATE_RESPBODY == state)) {
+		if(HTTP_BUFFER_LEN < (b->datalen + size )){
 			mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, 
-					"%s : Error http callback : Buffer overflow detected \n", mod->name);
-			return -1;
+					"Error in http callback : Buffer overflow detected \n", mod->name);
+			return MESIBO_RESULT_FAIL;
 		}
 
 		memcpy(b->buffer + b->datalen, buffer, size);
 		b->datalen += size;
 	}
 
-	if (progress == 100) {
+	if (100 == progress) {
 		mesibo_log(mod, tc->log,  "%.*s", b->datalen, b->buffer);
 		mesibo_message_params_t p;
                 memset(&p, 0, sizeof(mesibo_message_params_t));
@@ -145,14 +144,14 @@ static int translate_http_callback(void *cbdata, mesibo_int_t state,
                 p.refid = params->id;
                 p.aid = params->aid;
                 p.from = b->from;
-                p.to = b->to; // User adress who sent the query is the recipient
+                p.to = b->to; 
                 p.expiry = 3600;
 
 		char* extracted_response = mesibo_util_json_extract( b->buffer , "translatedText", NULL);
 		mesibo_log(mod, tc->log,  "\n Extracted Response Text \n %s \n", extracted_response);
-		int mv = mesibo_message(mod, &p, extracted_response , strlen(extracted_response));
-
-		mesibo_translate_destroy_message_context(b);	
+		mesibo_message(mod, &p, extracted_response , strlen(extracted_response));
+		
+		mesibo_translate_destroy_http_context(b);	
 	}
 
 	return MESIBO_RESULT_OK;
@@ -162,105 +161,90 @@ static int translate_http_callback(void *cbdata, mesibo_int_t state,
  * Helper function to initialize HTTP options
 **/
 static module_http_option_t* mesibo_translate_get_http_opt(translate_config_t* tc){
-        module_http_option_t *request_options =
-                (module_http_option_t *)calloc(1, sizeof(module_http_option_t));
-
-        request_options->extra_header = tc->auth_bearer;
-        request_options->content_type = "application/json";
-
-        return request_options;
+	tc->translate_http_opt = (module_http_option_t *)calloc(1, sizeof(module_http_option_t));
+        tc->translate_http_opt->extra_header = tc->auth_bearer;
+        tc->translate_http_opt->content_type = "application/json";
 }
-
 /**
  * Reads configuration parameters and initializes Google Translate(Cloud Translate Service) REST API parameters
- * Constructs base URL for sending POST request
- * Google Translate V2 API reference https://cloud.google.com/translate/docs/quickstart
- * POST
- * https://translation.googleapis.com/language/translate/v2
- *
  * Constructs Authentication header using access_token(service account key) provided in configuration
  * https://cloud.google.com/docs/authentication/
- */
+**/
 static int translate_init_google(mesibo_module_t* mod){
 	translate_config_t* tc = (translate_config_t*)mod->ctx;
-	
-	tc->post_url = tc->endpoint;
-	mesibo_log(mod, tc->log,  "Configured post url for HTTP requests: %s \n", tc->post_url);
-	
-	int cv;
-	cv = asprintf(&tc->auth_bearer,"Authorization: Bearer %s", tc->access_token);
-        if(cv == -1)return MESIBO_RESULT_FAIL;
+        
+	asprintf(&tc->auth_bearer, "Authorization: Bearer %s", tc->access_token);
         mesibo_log(mod, tc->log, "Configured auth bearer for HTTP requests with token: %s \n", tc->auth_bearer );
-	
-	tc->translate_http_opt = mesibo_translate_get_http_opt(tc);
 
+        tc->translate_http_opt = mesibo_translate_get_http_opt(tc);
+	
 	return MESIBO_RESULT_OK;
 }
+
 /**
  * Passes the message text receieved into the the POST data  
  * Constructs raw POST data and Authorization header
  * Makes an HTTP request to Cloud Translate service
  * The response to the request will be received in the callback function translate_http_callback
- */
+**/
 static int translate_process_message(mesibo_module_t *mod, mesibo_message_params_t *p,
 		const char *message, mesibo_uint_t len) {
 	
 	translate_config_t* tc = (translate_config_t*)mod->ctx;
-	const char* post_url = tc->post_url; 
+	const char* post_url = tc->endpoint; 
 	
 	char* raw_post_data;
-        int cv;
-        cv = asprintf(&raw_post_data,"{\"q\":[\"%.*s\"], \"target\":\"%s\"}",
+        asprintf(&raw_post_data, "{\"q\":\"%.*s\", \"target\":\"%s\"}",
                         (int)len, message, tc->target);
-        if(cv == -1) return MESIBO_RESULT_FAIL;
 	
+	http_context_t *http_context =
+		(http_context_t *)calloc(1, sizeof(http_context_t));
+	http_context->mod = mod;
+	http_context->params = p;
+	http_context->from = strdup(p->from);
+	http_context->to = strdup(p->to);
+	http_context->post_data= raw_post_data;
 
-	message_context_t *message_context =
-		(message_context_t *)calloc(1, sizeof(message_context_t));
-	message_context->mod = mod;
-	message_context->params = p;
-	message_context->from = strdup(p->from);
-	message_context->to = strdup(p->to);
 
 	mesibo_log(mod, tc->log,  "POST request %s %s %s %s \n", 
 			post_url, raw_post_data,
 		       	tc->translate_http_opt->extra_header, 
 			tc->translate_http_opt->content_type);
-
-	mesibo_http(mod, post_url, raw_post_data, translate_http_callback,
-			(void *)message_context, tc->translate_http_opt);
-
+	
+	mesibo_http(mod, post_url, raw_post_data, translate_http_callback , (void *)http_context, tc->translate_http_opt);
+	
 	return MESIBO_RESULT_OK;
 }
+
+
 
 /**
  * Callback function to on_message
  * Called when any user sends a Message 
- */
+**/
 static mesibo_int_t translate_on_message(mesibo_module_t *mod, mesibo_message_params_t *p,
 		const char *message, mesibo_uint_t len) {
-
+	
 	translate_config_t* tc = (translate_config_t*)mod->ctx;
-
-	// Don't modify original as other module will use it
+	
 	mesibo_message_params_t *np = (mesibo_message_params_t *)calloc(1, sizeof(mesibo_message_params_t));
 	memcpy(np, p, sizeof(mesibo_message_params_t));
 	translate_process_message(mod, np, message, len);
-
+	
 	return MESIBO_RESULT_CONSUMED;  // Process the message and CONSUME original
 }
 
 /**
  * Helper function for getting translate configuration
  * Here, it gets the required configuration for Google Translate
- */
-
+**/
 static translate_config_t*  get_config_google_translate(mesibo_module_t* mod){
 	translate_config_t* tc = (translate_config_t*)calloc(1, sizeof(translate_config_t));
+	tc->access_token = mesibo_util_getconfig(mod, "access_token");
 	tc->endpoint = mesibo_util_getconfig(mod, "endpoint");
 	tc->source = mesibo_util_getconfig(mod, "source");
 	tc->target = mesibo_util_getconfig(mod, "target");
-	tc->access_token = mesibo_util_getconfig(mod, "access_token");
+	tc->log = atoi(mesibo_util_getconfig(mod, "log"));
 
 	mesibo_log(mod, tc->log,  " Configured Google Translate :\n endpoint %s \n"
 			" source %s \n target %s\n access_token %s\n", 
@@ -271,24 +255,38 @@ static translate_config_t*  get_config_google_translate(mesibo_module_t* mod){
 }
 
 /**
+ * Cleanup once Module work is complete
+ *
+ **/
+static  mesibo_int_t  translate_on_cleanup(mesibo_module_t* mod){
+        translate_config_t* tc = (translate_config_t*)mod->ctx;
+        free(tc->auth_bearer);
+        free(tc->translate_http_opt);
+        free(tc);
+
+        return MESIBO_RESULT_OK;
+}
+
+/**
  * Module Initialization function
  * Verifies module definition, reads configuration and Inititializes callback functions 
- */
+**/
 int mesibo_module_translate_init(mesibo_int_t version, mesibo_module_t *m, mesibo_uint_t len) {
 
 	MESIBO_MODULE_SANITY_CHECK(m, version, len);
 	m->flags = 0;
         m->description = strdup("Sample Translate Module");
         m->on_message = translate_on_message;
-
+	m->on_cleanup = translate_on_cleanup;
+	
 	if(m->config) {
 		translate_config_t* tc = get_config_google_translate(m);
-		if(tc  == NULL){
+		if(NULL == tc){
 			mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "%s : Missing Configuration\n", m->name);
 			return MESIBO_RESULT_FAIL;
 		}
 		int init_status= translate_init_google(m);
-		if(init_status!=MESIBO_RESULT_OK){
+		if(MESIBO_RESULT_OK != init_status){
 			mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "%s : Bad Configuration\n", m->name);
 			return MESIBO_RESULT_FAIL;
 		}

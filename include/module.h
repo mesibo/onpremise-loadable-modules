@@ -64,6 +64,7 @@ typedef struct _module_http_option_t {
 	mesibo_uint_t conn_timeout, header_timeout, body_timeout, total_timeout;
 
 	mesibo_uint_t retries;
+	mesibo_uint_t synchronous;
 
 } module_http_option_t;
 
@@ -145,3 +146,4 @@ MESIBO_EXPORT mesibo_int_t	mesibo_http(mesibo_module_t *mod, const char *url, co
 MESIBO_EXPORT mesibo_int_t	mesibo_log(mesibo_module_t *mod, mesibo_uint_t level, const char *format, ...);
 MESIBO_EXPORT char* mesibo_util_getconfig(mesibo_module_t* mod, const char* item_name);
 MESIBO_EXPORT char* mesibo_util_json_extract(char *src, const char *key, char **next);
+MESIBO_EXPORT void mesibo_util_create_thread(void *(*threadFunction) (void *), void *data, size_t stacksize, const char *name);

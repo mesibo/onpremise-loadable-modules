@@ -1,11 +1,11 @@
 # Skeleton Module
 
-This repository contains a bare bones version of a Mesibo Module that explains the usage of different aspects of the module, various callback functions, callable functions and utilities. You can download the source code and compile it to obtain the module- a shared library file. Also, you can load the pre-compiled module which is provided as `mesibo_mod_skeleton.so`
+This repository contains a bare-bones version of a Mesibo Module that explains the usage of different aspects of the module, various callback functions, callable functions, and utilities. You can download the source code and compile it to obtain the module- a shared library file. Also, you can load the pre-compiled module which is provided as `mesibo_mod_skeleton.so`
 
-The Skeleton Module serves as a reference for all other Sample Modules. The complete documentation for Mesibo Modules is available [here](https://mesibo.com/documentation/loadable-modules/)
+The Skeleton Module serves as a reference for all other Sample Modules. The complete documentation for Mesibo Modules is available [here](https://mesibo.com/documentation/on-premise/loadable-modules/)
 
 ### 1. The C/C++ Source file
-The module name is `skeleton`. The C/C++ Source file ie; `skeleton.c`. The header file `module.h` containing the definitions of all module related components is included in the C/C++ source as follows:
+The module name is `skeleton`. The C/C++ Source file ie; `skeleton.c`. The header file `module.h` containing the definitions of all module related components are included in the C/C++ source as follows:
 ```cpp
 #include "module.h"
 ```
@@ -15,18 +15,18 @@ While loading your module you need to provide your configuration details in the 
 The skeleton module is configured as follows:
 ```
 
-module = skeleton {
-source = skeleton.cpp
-name = skeleton
-description = Bare bones version of a Mesibo Module
-log = 1
+module  skeleton {
+    source = skeleton.cpp
+    name = skeleton
+    description = Bare bones version of a Mesibo Module
+    log = 1
 }
 
 ```
-Please note that the above is just an example configuration. You can pass name-value pairs as per the configuration needs of your module. Any configuration paramters that you pass will be available through the initialisation function.
+Please note that the above is just an example configuration. You can pass name-value pairs as per the configuration needs of your module. Any configuration parameters that you pass will be available through the initialization function.
 
 ### 3. Initializing the skeleton module
-The skeleton module is initialized with the Mesibo Module Configuration details - module version, the name of the module and  references to the module callback functions.
+The skeleton module is initialized with the Mesibo Module Configuration details - module version, the name of the module and references to the module callback functions.
 ```cpp
 int mesibo_module_skeleton_init(mesibo_int_t version, mesibo_module_t *m, mesibo_uint_t len) {
         MESIBO_MODULE_SANITY_CHECK(m, version, len);
@@ -58,12 +58,12 @@ int mesibo_module_skeleton_init(mesibo_int_t version, mesibo_module_t *m, mesibo
 ### 4. skeleton_on_message
 `on_message` will notify you for any message exchanged between users. You can intercept each message, decide what to do with it ie; process the message and then send a response. 
 
-For example, here we simple send a message `"Hello from Skeleton Module"` to the user who sent the message. Observer that, this message will be sent from the module to any user who sends a message to any other user.
+For example, here we simply send a message `"Hello from Skeleton Module"` to the user who sent the message. Observer that, this message will be sent from the module to any user who sends a message to any other user.
 
 Returns:   
 `MESIBO_RESULT_PASS` to pass the message data and parameters as it is 
  OR
-`MESIBO_RESULT_CONSUMED` if message is to be consumed . If consumed, the recipient will not receive THIS message.
+`MESIBO_RESULT_CONSUMED` if the message is to be consumed. If consumed, the recipient will not receive THIS message.
 
 ```cpp
 
@@ -85,7 +85,7 @@ static mesibo_int_t skeleton_on_message(mesibo_module_t *mod, mesibo_message_par
 
 ```
 ### 5. skeleton_on_message_status
-This function is called when a message is sent from the skeleton module to indicate the status of the message which corresponds to different status codes such as `MSGSTATUS_SENT`,`MSGSTATUS_DELIVERED`,`MSGSTATUS_READ`, etc
+This function is called when a message is sent from the skeleton module to indicate the status of the message which corresponds to different status codes such as `MSGSTATUS_SENT`, `MSGSTATUS_DELIVERED`, `MSGSTATUS_READ`, etc
 ```cpp
 
 static mesibo_int_t skeleton_on_message_status(mesibo_module_t *mod, mesibo_message_params_t *p, mesibo_uint_t status) {
@@ -94,15 +94,15 @@ static mesibo_int_t skeleton_on_message_status(mesibo_module_t *mod, mesibo_mess
         return 0;
 }
 
-	
+    
 ```
-For example, when we send the test message `"Hello from Skeleton Module"` to a user `skeleton_on_message_status` will be called with the corresponding message paramters and status data.
+For example, when we send the test message `"Hello from Skeleton Module"` to a user `skeleton_on_message_status` will be called with the corresponding message parameters and status data.
 
 Returns:
 MESIBO_RESULT_OK
 
 ### 6. skeleton_on_login
-This function is called when a user  logs-in or logs-out.
+This function is called when a user logs-in or logs-out.
 
 ```cpp
 
@@ -116,11 +116,11 @@ static mesibo_int_t skeleton_on_login(mesibo_module_t *mod, mesibo_user_t *user)
 You can make an HTTP POST request using the module function `mesibo_http`.
  
 ```
-For example, if your request url looks like  `https://example.com/api.php?op=test`   
+For example, if your request URL looks like  `https://example.com/api.php?op=test`   
 The `url` parameter will be `"https://example.com/api.php"`
 The `post` parameter will be `"op=test"`
 
-The response to the HTTP request is available through the callback function `mesibo_module_http_data_callback_t`  with the callback data (of arbitrary data type) `cbdata`. If there are any additional parmaeters to the POST request such as authorization header,etc it can be passed in `opt.`
+The response to the HTTP request is available through the callback function `mesibo_module_http_data_callback_t`  with the callback data (of arbitrary data type) `cbdata`. If there are any additional parameters to the POST request such as authorization header, etc it can be passed in `opt.`
 ```cpp
 
 static mesibo_int_t skeleton_http(mesibo_module_t *mod) {
@@ -132,9 +132,9 @@ static mesibo_int_t skeleton_http(mesibo_module_t *mod) {
 ```
 ### mesibo_module_http_data_callback : The HTTP callback function
 
-The response to the HTTP request is recieved through this callback function. In this example , the `cbdata` contains the pointer to `mod` which is available after casting it from `void*` to `mesibo_module_t*`.
+The response to the HTTP request is received through this callback function. In this example, the `cbdata` contains the pointer to `mod` which is available after casting it from `void*` to `mesibo_module_t*`.
 
-The `progress` of the response being recieved is logged . Note that the response is recieved asynchronously, and if `progress` reaches `100` it indicates that the complete response has been recieved.
+The `progress` of the response being received is logged. If `progress` reaches `100` it indicates that the complete response has been received.
 
 ```cpp
 

@@ -39,7 +39,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * Documentation
- * https://mesibo.com/documentation/loadable-modules/ 
+ * https://mesibo.com/documentation/on-premise/loadable-modules/ 
  *
  * Source Code Repository
  * http://github.com/mesibo/onpremise-loadable-modules
@@ -57,7 +57,7 @@
  * Function: mesibo_module_http_data_callback
  * ------------------------------------------
  * Example HTTP callback function, through which response is received
- * Refer https://mesibo.com/documentation/loadable-modules/#http
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#http
  *
  */
 
@@ -71,7 +71,7 @@ int mesibo_module_http_data_callback(void *cbdata, mesibo_int_t state, mesibo_in
  * Function: skeleton_http
  * ----------------------
  * Example for making an HTTP request
- * Refer https://mesibo.com/documentation/loadable-modules/#http
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#http
  *
  */
 static mesibo_int_t skeleton_http(mesibo_module_t *mod) {
@@ -83,7 +83,7 @@ static mesibo_int_t skeleton_http(mesibo_module_t *mod) {
  * Function: skeleton_on_cleanup
  * -----------------------------
  * This function is called when the module process is complete and to clean up.
- * Refer https://mesibo.com/documentation/loadable-modules/#on_cleanup
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#on_cleanup
  *
  */
 static mesibo_int_t skeleton_on_cleanup(mesibo_module_t *mod) {
@@ -95,7 +95,7 @@ static mesibo_int_t skeleton_on_cleanup(mesibo_module_t *mod) {
  * Function: skeleton_on_login
  * ---------------------------
  * This function is called whenever a user logs-in or logs-out.
- * Refer https://mesibo.com/documentation/loadable-modules/#on_login
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#on_login
  *
  */
 static mesibo_int_t skeleton_on_login(mesibo_module_t *mod, mesibo_user_t *user) {
@@ -107,12 +107,12 @@ static mesibo_int_t skeleton_on_login(mesibo_module_t *mod, mesibo_user_t *user)
  * Function: skeleton_on_message_status
  * ------------------------------------
  * This function is called whenever there is a status update for the messages sent from the module
- * Refer https://mesibo.com/documentation/loadable-modules/#on_message_status
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#on_message_status
  * 
  */
 static mesibo_int_t skeleton_on_message_status(mesibo_module_t *mod, mesibo_message_params_t *p, mesibo_uint_t status) {
-	mesibo_log(mod, 1, " %s on_message_status called\n", mod->name);
-	mesibo_log(mod, 1, " from %s id %u status %d\n", p->from, (uint32_t)p->id, status);
+	mesibo_log(mod, 0, " %s on_message_status called\n", mod->name);
+	mesibo_log(mod, 0, " from %s id %u status %d\n", p->from, (uint32_t)p->id, status);
 	return 0;
 }
 
@@ -124,13 +124,13 @@ static mesibo_int_t skeleton_on_message_status(mesibo_module_t *mod, mesibo_mess
  * module / recepient OR consume it by returning an appropriate value.
  *
  * Example for recieving the message and sending an automatic reply 
- * Refer https://mesibo.com/documentation/loadable-modules/#on_message
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#on_message
  */
 
 static mesibo_int_t skeleton_on_message(mesibo_module_t *mod, mesibo_message_params_t *p, const char *message, mesibo_uint_t len) {
-	mesibo_log(mod, 1, "================> %s on_message called\n", mod->name);
-	mesibo_log(mod, 1, " from %s to %s id %u message %s\n", p->from, p->to, (uint32_t) p->id, message);
-
+	mesibo_log(mod, 0, "================> %s on_message called\n", mod->name);
+	mesibo_log(mod, 0, " from %s to %s id %u message %s\n", p->from, p->to, (uint32_t) p->id, message);
+	
 	//don't modify original as other module will be use it 
 	mesibo_message_params_t	np;
 	memcpy(&np, p, sizeof(mesibo_message_params_t));
@@ -149,7 +149,7 @@ static mesibo_int_t skeleton_on_message(mesibo_module_t *mod, mesibo_message_par
  * Skeleton Module Initialization
  *
  * Example for reading configuration items and initialiszing callback functions 
- * Refer https://mesibo.com/documentation/loadable-modules/#module-initialization
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#module-initialization
  *
  */
 

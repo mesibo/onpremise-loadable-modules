@@ -41,7 +41,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * Documentation
- * https://mesibo.com/documentation/loadable-modules
+ * https://mesibo.com/documentation/on-premise/loadable-modules
  *
  * Source Code Repository
  * https://github.com/mesibo/onpremise-loadable-modules
@@ -92,6 +92,7 @@
 #define HTTP_BODY_TIMEOUT 			"body_timeout"
 #define HTTP_TOTAL_TIMEOUT 			"total_timeout"
 #define HTTP_RETRIES 				"retries"
+#define HTTP_SYNCHRONOUS 			"synchronous"
 
 /** Listener functions **/
 #define MESIBO_LISTENER_ON_MESSAGE 		"Mesibo_onMessage"
@@ -107,13 +108,13 @@
  * Refer sample.conf
  */
 typedef struct js_config_s{
-	char* script;
+	const char* script;
 	int log; //log level
 	long last_changed; // Time Stamp
 	duk_context* ctx; // JavaScript file context
 } js_config_t;
 
-typedef struct message_context_s {
+typedef struct http_context_s {
 	mesibo_module_t *mod;
 	char buffer[HTTP_BUFFER_LEN];
 	int datalen;	
@@ -122,7 +123,7 @@ typedef struct message_context_s {
 	char *http_cb;
 	char *http_cbdata;
 	module_http_option_t* http_opt;
-} message_context_t;
+} http_context_t;
 
 /** Mesibo Module helper functions callable from Javscript**/
 static duk_ret_t mesibo_js_http(duk_context *ctx);
@@ -250,6 +251,7 @@ void mesibo_duk_getoptions(duk_context *ctx, duk_idx_t obj_idx,
 	opt->body_timeout = mesibo_duk_get_param_uint(ctx, obj_idx, HTTP_BODY_TIMEOUT);
 	opt->total_timeout = mesibo_duk_get_param_uint(ctx, obj_idx, HTTP_TOTAL_TIMEOUT);
 	opt->retries = mesibo_duk_get_param_uint(ctx, obj_idx, HTTP_RETRIES);
+	opt->synchronous = mesibo_duk_get_param_uint(ctx, obj_idx, HTTP_SYNCHRONOUS);
 }
 
 /**
@@ -271,7 +273,7 @@ void mesibo_duk_load_functions(duk_context *ctx) {
  * Get the timestamp of the last made change in script
  **/
 
-static long get_last_changed(mesibo_module_t* mod, char *path) {
+static long get_last_changed(mesibo_module_t* mod, const char *path) {
 	js_config_t* jsc = (js_config_t*)mod->ctx;
 	struct stat attr;
 	if(stat(path, &attr) != 0){
@@ -344,7 +346,7 @@ static duk_context *mesibo_duk_get_context(mesibo_module_t* mod) {
 
 	if(jsc == NULL){
 		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "%s : Bad configuration. mesibo_duk_get_context failed\n",
-			       	mod->name);
+				mod->name);
 		return NULL;
 	}
 	long latest_last_changed = get_last_changed(mod, jsc->script);
@@ -503,7 +505,7 @@ static mesibo_int_t notify_mesibo_on_http_response(mesibo_module_t *mod,
 	return rc;
 }
 
-void mesibo_js_destroy_message_context(message_context_t* mc){
+void mesibo_js_destroy_http_context(http_context_t* mc){
 
 	free(mc->http_cb);
 	free(mc->http_cbdata);
@@ -520,42 +522,42 @@ static int mesibo_http_callback(void *cbdata, mesibo_int_t state,
 		mesibo_int_t progress, const char *buffer,
 		mesibo_int_t size) {
 
-	message_context_t *b = (message_context_t *)cbdata;
+	http_context_t *b = (http_context_t *)cbdata;
 	mesibo_module_t *mod = b->mod;
 	js_config_t* jsc = (js_config_t*)mod->ctx;
 
 
-	if (progress < 0) {
+	if (0 > progress) {
 		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, " Error in http callback \n");
-		mesibo_js_destroy_message_context(b);
+		mesibo_js_destroy_http_context(b);
 		return MESIBO_RESULT_FAIL;
 	}
 
-	if (state != MODULE_HTTP_STATE_RESPBODY) {
+	if (MODULE_HTTP_STATE_RESPBODY != state) {
 		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, " Exit http callback \n");
 		if(size)
 			mesibo_log(mod, jsc->log, "%.*s \n", size, buffer);
 		return MESIBO_RESULT_OK;
 	}
 
-	if ((progress > 0) && (state == MODULE_HTTP_STATE_RESPBODY)) {
-		if(b->datalen + size > HTTP_BUFFER_LEN){
+	if ((0 < progress) && (MODULE_HTTP_STATE_RESPBODY == state)) {
+		if(HTTP_BUFFER_LEN < (b->datalen + size )){
 			mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "%s :"
 					" Error http callback :Buffer overflow detected \n", mod->name);
-			mesibo_js_destroy_message_context(b);
+			mesibo_js_destroy_http_context(b);
 			return MESIBO_RESULT_FAIL;
 		}
 		memcpy(b->buffer + b->datalen, buffer, size);
 		b->datalen += size;
 	}
 
-	if (progress == 100) {
+	if (100 == progress) {
 		mesibo_log(mod, jsc->log, "%.*s", b->datalen, b->buffer);
 		mesibo_log(mod, jsc->log, "\n JS Callback %s %s \n", b->http_cbdata, b->http_cb);
 		notify_mesibo_on_http_response(mod, b->http_cbdata, b->http_cb, b->buffer,
 				b->datalen);
 
-		mesibo_js_destroy_message_context(b);
+		mesibo_js_destroy_http_context(b);
 	}
 
 	return MESIBO_RESULT_OK;
@@ -582,7 +584,7 @@ static mesibo_int_t  js_http(mesibo_module_t *mod, const char *url, const char *
 	js_config_t* jsc = (js_config_t*)mod->ctx;
 
 	mesibo_log(mod, jsc->log, "js_http called \n");
-	message_context_t *b = (message_context_t *)calloc(1, sizeof(message_context_t));
+	http_context_t *b = (http_context_t *)calloc(1, sizeof(http_context_t));
 
 	b->mod = mod;
 	b->http_cb = strdup(cb);
@@ -603,7 +605,7 @@ static mesibo_int_t  js_http(mesibo_module_t *mod, const char *url, const char *
  * Module Callback function for on_message_status
  * This function is called when a message is sent from the module to indicate the status of the message.
  * Notify Javascript callback Mesibo_onMessageStatus
- * Refer https://mesibo.com/documentation/loadable-modules/#on_message_status
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#on_message_status
  **/
 static mesibo_int_t  js_on_message_status(mesibo_module_t *mod,
 		mesibo_message_params_t *p,
@@ -622,15 +624,12 @@ static mesibo_int_t  js_on_message_status(mesibo_module_t *mod,
  * Module Callback function for on_message
  * This function is called when a user sends a message.
  * Notify Javascript callback Mesibo_onMessage
- * Refer https://mesibo.com/documentation/loadable-modules/#on_message
+ * Refer https://mesibo.com/documentation/on-premise/loadable-modules/#on_message
  **/
 static mesibo_int_t  js_on_message(mesibo_module_t *mod, mesibo_message_params_t *p,
 		const char *message, mesibo_uint_t len) {
 
 	js_config_t* jsc = (js_config_t*)mod->ctx;
-	mesibo_log(mod, jsc->log, " %s on_message called\n", mod->name);
-	mesibo_log(mod, jsc->log, "aid %u from %s to %s id %u message %.*s\n", p->aid, p->from,
-			p->to, (uint32_t)p->id, len, message);
 
 	int result = notify_mesibo_on_message(mod, p, message, len);
 	return result;  // Either MESIBO_RESULT_CONSUMED or MESIBO_RESULT_PASS
@@ -646,7 +645,6 @@ static mesibo_int_t  notify_mesibo_on_message_status(mesibo_module_t *mod,
 
 	js_config_t* jsc = (js_config_t*)mod->ctx;
 
-	mesibo_log(mod, jsc->log, "%s called \n", "notify_mesibo_on_message_status");
 	duk_context *ctx = mesibo_duk_get_context(mod);
 	if (!ctx) {
 		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "%s :Error: Load context failed ",
@@ -663,15 +661,11 @@ static mesibo_int_t  notify_mesibo_on_message_status(mesibo_module_t *mod,
 	mesibo_duk_pushparams(mod, ctx, obj_idx, p);
 	duk_push_uint(ctx, status);
 
-	mesibo_log(mod, jsc->log, "%s called \n", MESIBO_LISTENER_ON_MESSAGE_STATUS);
 	//Evaluate JS function in the script
 	duk_pcall(ctx, 3);
 
 	//Obtain return value
 	int ret = duk_to_int(ctx, -1);  
-
-	mesibo_log(mod, jsc->log, " ===> %s returned %d \n", MESIBO_LISTENER_ON_MESSAGE_STATUS,
-			ret);
 
 	duk_pop(ctx);
 	return ret;
@@ -686,7 +680,6 @@ static mesibo_int_t  notify_mesibo_on_message(mesibo_module_t *mod, mesibo_messa
 
 	duk_context *ctx = mesibo_duk_get_context(mod);
 	js_config_t* jsc = (js_config_t*)mod->ctx;
-	mesibo_log(mod, jsc->log, "%s called \n", "notify_mesibo_on_message");
 
 	if (!ctx) {
 		mesibo_log(mod, jsc->log, "%s : Error: Load context failed", MESIBO_LISTENER_ON_MESSAGE);
@@ -705,7 +698,6 @@ static mesibo_int_t  notify_mesibo_on_message(mesibo_module_t *mod, mesibo_messa
 	duk_push_int(ctx, len);
 	duk_push_int(ctx, 5);
 
-	mesibo_log(mod, jsc->log, "%s called \n", MESIBO_LISTENER_ON_MESSAGE);
 	//Evaluate JS function in the script
 	duk_pcall(ctx, 5);
 
@@ -713,7 +705,6 @@ static mesibo_int_t  notify_mesibo_on_message(mesibo_module_t *mod, mesibo_messa
 		duk_to_int(ctx, -1);  // Return value can either be
 	// MESIBO_RESULT_CONSUMED or MESIBO_RESULT_PASS
 
-	mesibo_log(mod, jsc->log, " ===> %s returned %d \n", MESIBO_LISTENER_ON_MESSAGE, ret);
 
 	duk_pop(ctx);
 	return ret;
@@ -745,7 +736,7 @@ int mesibo_module_js_init(mesibo_int_t version, mesibo_module_t *m, mesibo_uint_
 
 	if(m->config) {
 		js_config_t* jsc = get_config_js(m);
-		if(jsc == NULL){
+		if(NULL == jsc){
 			mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "%s : Missing Configuration\n", m->name);
 			return MESIBO_RESULT_FAIL;
 		}

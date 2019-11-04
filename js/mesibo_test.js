@@ -21,7 +21,7 @@ function Mesibo_onHttpResponse(mod, cbdata, response, datalen) {
 function Mesibo_onMessage(mod, p, message, len, temp) {
 	var msg_log = "Recieved Message" + message + +"from " +p.from +"to " +p.to;
 	mesibo_log(mod, msg_log, msg_log.length + len);
-	var params = Object.assign({},p);
+	var params = Object.assign({}, p);
 	params.to = p.from;
 	params.from = p.to;
 	params.expiry = 3600;

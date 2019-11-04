@@ -41,7 +41,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * Documentation
- * https://mesibo.com/documentation/loadable-modules
+ * https://mesibo.com/documentation/on-premise/loadable-modules
  *
  * Source Code Repository
  * https://github.com/mesibo/onpremise-loadable-modules
@@ -57,6 +57,7 @@
 #include "module.h"
 
 #define HTTP_BUFFER_LEN (64 * 1024)
+#define HTTP_POST_URL_LEN_MAX (1024)
 #define MODULE_LOG_LEVEL_0VERRIDE 0
 
 /**
@@ -66,20 +67,20 @@
 typedef struct chatbot_config_s {
 	/* To be configured in module configuration file */
 	const char* project;
-	const char* session;
 	const char* endpoint;
 	const char* access_token;
-	const char* chatbot_uid;
+	const char* language;
+	const char* address;
 	int log;
 
-	/* To be configured by dialogflow init function */
+	/* To be configured by Dialogflow init function */
 	char* post_url;
 	char* auth_bearer;
 	module_http_option_t* chatbot_http_opt;
 
 } chatbot_config_t;
 
-typedef struct message_context_s {
+typedef struct http_context_s {
 	mesibo_module_t *mod;
 	mesibo_message_params_t* params;
 	char *from;
@@ -89,12 +90,12 @@ typedef struct message_context_s {
 	int datalen;
 
 	char* post_data; //For cleanup after HTTP request is complete	
-} message_context_t;
+} http_context_t;
 
-void mesibo_chatbot_destroy_message_context(message_context_t* mc){
-	free(mc->params);
+void mesibo_chatbot_destroy_http_context(http_context_t* mc){
 	free(mc->from);
 	free(mc->to);
+	free(mc->params);
 	free(mc->post_data);
 	free(mc);
 }
@@ -107,47 +108,51 @@ void mesibo_chatbot_destroy_message_context(message_context_t* mc){
 static int chatbot_http_callback(void *cbdata, mesibo_int_t state,
 		mesibo_int_t progress, const char *buffer,
 		mesibo_int_t size) {
-	message_context_t *b = (message_context_t *)cbdata;
+	http_context_t *b = (http_context_t *)cbdata;
 	mesibo_module_t *mod = b->mod;
 	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
 
 	mesibo_message_params_t* params = b->params;
 
-	if (progress < 0) {
-		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, " Error in http callback \n");
-		mesibo_chatbot_destroy_message_context(b);
+	if (0 > progress) {
+		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "Error in http callback \n");
+		mesibo_chatbot_destroy_http_context(b);
 		return MESIBO_RESULT_FAIL;
 	}
 
-	if (state != MODULE_HTTP_STATE_RESPBODY) {
+	if (MODULE_HTTP_STATE_RESPBODY != state) {
 		if(size)
-			mesibo_log(mod, cbc->log, " Exit http callback %.*s \n", size, buffer);
+			mesibo_log(mod, cbc->log, "Exit http callback %.*s \n", size, buffer);
 		return MESIBO_RESULT_OK;
 	}
 
-	if ((progress > 0) && (state == MODULE_HTTP_STATE_RESPBODY)) {
+	if ((0 < progress) && (MODULE_HTTP_STATE_RESPBODY == state)) {
+		if(HTTP_BUFFER_LEN < (b->datalen + size )){
+			mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE,
+					"Error in http callback : Buffer overflow detected \n", mod->name);
+			return MESIBO_RESULT_FAIL;
+		}
 		memcpy(b->buffer + b->datalen, buffer, size);
 		b->datalen += size;
 	}
 
-	if (progress == 100) {
+	if (100 == progress) {
 		mesibo_log(mod, cbc->log, "%.*s", b->datalen, b->buffer);
 		mesibo_message_params_t p;
 		memset(&p, 0, sizeof(mesibo_message_params_t));
 		p.id = rand();
 		p.refid = params->id;
 		p.aid = params->aid;
-		p.from = params->to;
-		p.to = params->from; // User adress who sent the query is the recipient
+		p.from = b->to;
+		p.to = b->from; // User adress who sent the query is the recipient
 		p.expiry = 3600;
 
 		char* extracted_response = mesibo_util_json_extract(b->buffer , "fulfillmentText", NULL);
-		mesibo_log(mod, cbc->log, "\n Extracted Response Text \n %s \n", extracted_response); 		
-		
-		int mv = mesibo_message(mod, &p, extracted_response , strlen(extracted_response));
-		mesibo_chatbot_destroy_message_context(b);
-		
-		return mv;
+
+		mesibo_message(mod, &p, extracted_response , strlen(extracted_response));
+		mesibo_chatbot_destroy_http_context(b);
+
+		return MESIBO_RESULT_OK;
 	}
 
 	return MESIBO_RESULT_OK;
@@ -155,14 +160,14 @@ static int chatbot_http_callback(void *cbdata, mesibo_int_t state,
 
 /**
  * Helper function to initialize HTTP options
-**/
+ **/
 static module_http_option_t* mesibo_chatbot_get_http_opt(chatbot_config_t* cbc){
 	module_http_option_t *request_options =
-                (module_http_option_t *)calloc(1, sizeof(module_http_option_t));
+		(module_http_option_t *)calloc(1, sizeof(module_http_option_t));
 
-        request_options->extra_header = cbc->auth_bearer;
-        request_options->content_type = "application/json";
-	
+	request_options->extra_header = cbc->auth_bearer;
+	request_options->content_type = "application/json";
+	request_options->synchronous = 0;	
 	return request_options;
 }
 
@@ -178,18 +183,14 @@ static module_http_option_t* mesibo_chatbot_get_http_opt(chatbot_config_t* cbc){
  */
 static int chatbot_init_dialogflow(mesibo_module_t* mod){
 	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
-	mesibo_log(mod, cbc->log, "chatbot_init_dialogflow called \n");
-	
-	int cv;
-        cv = asprintf(&cbc->post_url,"%s/projects/%s/agent/sessions/%s:detectIntent",
-			cbc->endpoint, cbc->project, cbc->session);
-	if(cv == -1)return MESIBO_RESULT_FAIL;
-	mesibo_log(mod, cbc->log, "Configured post url for HTTP requests: %s \n", cbc->post_url);
 
-	cv = asprintf(&cbc->auth_bearer,"Authorization: Bearer %s", cbc->access_token);
-	if(cv == -1)return MESIBO_RESULT_FAIL;	
+	asprintf(&cbc->post_url, "%s/projects/%s/agent/sessions",
+			cbc->endpoint, cbc->project);
+	mesibo_log(mod, cbc->log, "Configured post URL for HTTP requests: %s \n", cbc->post_url);
+
+	asprintf(&cbc->auth_bearer, "Authorization: Bearer %s", cbc->access_token);
 	mesibo_log(mod, cbc->log, "Configured auth bearer for HTTP requests with token: %s \n", cbc->auth_bearer );
-	
+
 	cbc->chatbot_http_opt = mesibo_chatbot_get_http_opt(cbc); 
 
 	return MESIBO_RESULT_OK;
@@ -197,35 +198,34 @@ static int chatbot_init_dialogflow(mesibo_module_t* mod){
 
 /**
  * Passes the message text receieved into the queryInput params in the POST data  
- * Constructs raw POST data and Authorization header
+ * Constructs raw POST data 
  * Makes an HTTP request to dialogflow service
  * The response to the request will be received in the callback function chatbot_http_callback
  */
 static int chatbot_process_message(mesibo_module_t *mod, mesibo_message_params_t *p,
 		const char *message, mesibo_uint_t len) {
-
+	(mod, "chatbot_process_message", p);
 	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
 
-	const char* post_url = cbc->post_url; 
-	char* raw_post_data;
-	int cv;
-	cv = asprintf(&raw_post_data,"{\"queryInput\":{\"text\":{\"text\":\" %.*s \"}}}",
-			(int)len, message);
-	if(cv == -1) return MESIBO_RESULT_FAIL;
+	char post_url[HTTP_POST_URL_LEN_MAX];
+	sprintf(post_url, "%s/%lu:detectIntent", cbc->post_url, p->id); //Pass Message ID as Session ID
+	char* raw_post_data; 
+	asprintf(&raw_post_data, "{\"queryInput\":{\"text\":{\"text\":\"%.*s\", \"languageCode\":\"%s\"}}}",
+			(int)len, message, cbc->language);
 
-	message_context_t *message_context =
-		(message_context_t *)calloc(1, sizeof(message_context_t));
-	message_context->mod = mod;
-	message_context->params = p;
-	message_context->from = strdup(p->from);
-	message_context->to = strdup(p->to);
+	http_context_t *http_context =
+		(http_context_t *)calloc(1, sizeof(http_context_t));
+	http_context->mod = mod;
+	http_context->params = p;
+	http_context->from = strdup(p->from);
+	http_context->to = strdup(p->to);
+	http_context->post_data = raw_post_data;
 
-	mesibo_log(mod, cbc->log, "POST request %s %s %s %s\n", post_url, raw_post_data, 
-			cbc->chatbot_http_opt->extra_header, 
+	mesibo_log(mod, cbc->log , "%s %s %s %s \n", post_url, raw_post_data, cbc->chatbot_http_opt->extra_header,
 			cbc->chatbot_http_opt->content_type);
 
 	mesibo_http(mod, post_url, raw_post_data, chatbot_http_callback,
-			(void *)message_context, cbc->chatbot_http_opt);
+			(void *)http_context, cbc->chatbot_http_opt);
 
 	return MESIBO_RESULT_OK;
 }
@@ -241,22 +241,13 @@ static mesibo_int_t chatbot_on_message(mesibo_module_t *mod, mesibo_message_para
 
 	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
 
-	mesibo_log(mod, cbc->log, " %s_on_message called\n", mod->name);
-	mesibo_log(mod, cbc->log, " aid %u from %s to %s id %u message %s\n", p->aid, p->from,
-			p->to, (uint32_t)p->id, message);
-
-
-	if(strcmp(p->to, cbc->chatbot_uid) == 0){
+	if(0 == strcmp(p->to, cbc->address)){
 		// Don't modify original as other module will use it
-		mesibo_message_params_t* np = (mesibo_message_params_t*)calloc(1, sizeof(mesibo_message_params_t)); 
+		mesibo_message_params_t* np = (mesibo_message_params_t*)malloc(sizeof(mesibo_message_params_t)); 
 		memcpy(np, p, sizeof(mesibo_message_params_t));
-		int rv = chatbot_process_message(mod, np, message, len);
-		
-		if(rv == MESIBO_RESULT_OK) 
-			return MESIBO_RESULT_CONSUMED;  // Process the message and CONSUME original
-		else
-			mesibo_log(mod, cbc->log, " %s_process_message failed\n", mod->name);
+		chatbot_process_message(mod, np, message, len);
 
+		return MESIBO_RESULT_CONSUMED;  // Process the message and CONSUME original
 	}
 
 	return MESIBO_RESULT_PASS;
@@ -269,15 +260,15 @@ static mesibo_int_t chatbot_on_message(mesibo_module_t *mod, mesibo_message_para
 static chatbot_config_t*  get_config_dialogflow(mesibo_module_t* mod){
 	chatbot_config_t* cbc = (chatbot_config_t*)calloc(1, sizeof(chatbot_config_t));
 	cbc->project = mesibo_util_getconfig(mod, "project");
-	cbc->session = mesibo_util_getconfig(mod, "session");
 	cbc->endpoint = mesibo_util_getconfig(mod, "endpoint");
 	cbc->access_token = mesibo_util_getconfig(mod, "access_token");
-	cbc->chatbot_uid = mesibo_util_getconfig(mod, "chatbot_uid");
+	cbc->language = mesibo_util_getconfig(mod, "language");
+	cbc->address = mesibo_util_getconfig(mod, "address");
 	cbc->log = atoi(mesibo_util_getconfig(mod, "log"));
 
-	mesibo_log(mod, cbc->log, "Configured DialogFlow :\n project %s \n session %s \n endpoint %s\n access_token %s\n"
-			"chatbot_uid %s\n", cbc->project, cbc->session, cbc->endpoint, 
-			cbc->access_token, cbc->chatbot_uid);
+	mesibo_log(mod, cbc->log, "Configured DialogFlow :\nproject %s\nendpoint %s\naccess_token %s\n"
+			"language %s\naddress %s\n", cbc->project, cbc->endpoint, 
+			cbc->access_token, cbc->language, cbc->address);
 
 	return cbc;
 }
@@ -285,7 +276,7 @@ static chatbot_config_t*  get_config_dialogflow(mesibo_module_t* mod){
 /**
  * Cleanup once Module work is complete
  *
-**/ 
+ **/ 
 static  mesibo_int_t  chatbot_on_cleanup(mesibo_module_t* mod){
 	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
 	free(cbc->post_url);
@@ -297,28 +288,28 @@ static  mesibo_int_t  chatbot_on_cleanup(mesibo_module_t* mod){
 }
 /**
  * Module Initialization function
- * Verifies module definition, reads configuration and Inititializes callback functions 
+ * Verifies module definition, reads configurSERVICE ACation and Inititializes callback functions 
  */
 int mesibo_module_chatbot_init(mesibo_int_t version, mesibo_module_t *m, mesibo_uint_t len) {
-	mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "mesibo_module_%s_init called",m->name);
+	mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "mesibo_module_%s_init called \n", m->name);
 
 	MESIBO_MODULE_SANITY_CHECK(m, version, len);
-	
+
 	m->flags = 0;
-        m->description = strdup("Sample Chatbot Module");
-        m->on_message = chatbot_on_message;
+	m->description = strdup("Sample Chatbot Module");
+	m->on_message = chatbot_on_message;
 
 
 	if(m->config) {
 		chatbot_config_t* cbc = get_config_dialogflow(m);
-		if(cbc  == NULL){
+		if(NULL == cbc){
 			mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "%s : Missing Configuration\n", m->name);
 			return MESIBO_RESULT_FAIL;
 		}
 		m->ctx = (void* )cbc;
 
 		int init_status = chatbot_init_dialogflow(m);
-		if(init_status != MESIBO_RESULT_OK){
+		if(MESIBO_RESULT_OK != init_status){
 			mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "%s : Bad Configuration\n", m->name);
 			return MESIBO_RESULT_FAIL;
 		}

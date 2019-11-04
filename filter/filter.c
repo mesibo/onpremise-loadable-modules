@@ -38,7 +38,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * Documentation
- * https://mesibo.com/documentation/loadable-modules
+ * https://mesibo.com/documentation/on-premise/loadable-modules
  *
  * Source Code Repository
  * https://github.com/mesibo/onpremise-loadable-modules
@@ -81,7 +81,6 @@ static char* mesibo_strupr(char* s){
  * Reads each message, loops through a list of blocked words and matches if any message string contains profanity 
  * 
  * Disclaimer: This is an extremely simplified implementation of a profanity filter.
- * It does not detect profanity if the blocked word is present as a substring
  *
  */
 static mesibo_int_t filter_on_message(mesibo_module_t *mod, mesibo_message_params_t *p,
@@ -89,12 +88,13 @@ static mesibo_int_t filter_on_message(mesibo_module_t *mod, mesibo_message_param
 
 	char* in_message = strndup(message, len);
 	in_message = mesibo_strupr(in_message) ; //Convert to UPPER_CASE
-
 	filter_config_t* fc = (filter_config_t*)mod->ctx;
+	
+	mesibo_log(mod, fc->log, "%s\n", in_message);
 	int i;
 	for(i =0; i< fc->count ;i++){ //Loop through list of blocked words
-
 		if(strstr(in_message, fc->blocked_words[i])){ //Message Contains blocked word 
+			mesibo_log(mod, 0, "Message dropped. Contains profanity \n");
 			free(in_message);
 			//drop message and prevent message from  reaching the recipient
 			return MESIBO_RESULT_CONSUMED; 
@@ -106,6 +106,15 @@ static mesibo_int_t filter_on_message(mesibo_module_t *mod, mesibo_message_param
 	// PASS the message as it is, after checking that it is SAFE
 }
 
+/**Number of blocked words = Number of commas + 1 **/
+static int get_count_words(const char* s, const char* c){
+	int i = 0;
+	for (i=0; '\0'!= s[i];s++)
+		if(*c == s[i])
+			i++;	
+	
+	return i+1;
+}
 
 /**
  * Helper function for getting filter configuration
@@ -115,13 +124,15 @@ static mesibo_int_t filter_on_message(mesibo_module_t *mod, mesibo_message_param
 static filter_config_t* get_config_filter(mesibo_module_t* mod){
 	filter_config_t* fc = (filter_config_t*)calloc(1, sizeof(filter_config_t));
 	char* bw = mesibo_util_getconfig(mod, "blocked_words"); //comma seperated blocked words	
-	int log = atoi( mesibo_util_getconfig(mod, "log")); //loglevel
+	fc->log = atoi( mesibo_util_getconfig(mod, "log")); //loglevel
+	
+	const char* delimitter = ", "; // blocked_words: bw1, bw2, bw3, ...  
+	fc->count = get_count_words(bw, delimitter);
 
 	fc->blocked_words = (char**)malloc(sizeof(char *)*fc->count);
-
+	
 	int i = 0;	
-	const char* delimitter = ",";
-	const char* token = strtok(bw, delimitter); // blocked_words: bw1,bw2,bw3, ...  
+	const char* token = strtok(bw, delimitter); 
 	while(token != NULL ){
 		fc->blocked_words[i] = mesibo_strupr(strdup(token));
 		token = strtok(NULL, delimitter);

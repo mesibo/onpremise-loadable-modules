@@ -2,18 +2,18 @@
 
 This repository contains the source code for JS Module. JavaScript Module loads and call functions in ECMAScript. In this example, the module uses the embeddable JS engine [duktape](https://duktape.org)
 
-Basically, The Javscript Module provides a bridge between Javascript and Mesibo. It mirrors all the functionality offered in Mesibo Module to be called through the context of Javascript, using callback functions.
+The Javascript Module provides a bridge between Javascript and Mesibo. It mirrors all the functionality offered in the Mesibo Module to be called through the context of Javascript, using callback functions.
 
 You can download the source and compile it to obtain the module- a shared library file. Also, you can load the pre-compiled module which is provided as `mesibo_mod_js.so`
 
-Refer to the [Skeleton Module](https://github.com/Nagendra1997/mesibo-documentation/blob/master/skeleton.md) for a basic understanding of how Mesibo Modules work. The complete documentation for Mesibo Modules is available [here](https://mesibo.com/documentation/loadable-modules/)
+Refer to the [Skeleton Module](https://github.com/mesibo/onpremise-loadable-modules/tree/master/skeleton) for a basic understanding of how Mesibo Modules work. The complete documentation for Mesibo Modules is available [here](https://mesibo.com/documentation/on-premise/loadable-modules/)
 
 ## Overview of JS Module
 - JS configuration containing the script path is provided in the module configuration (In the file `mesibo.conf`).
-- In module initialisation, all the configuration parameters is obtained from the configuration list and stored in a structure object  `js_config_t`.
-- Javascript context is initialized from the script and stored in module context
+- In module initialization, all the configuration parameters are obtained from the configuration list and stored in a structure object  `js_config_t`.
+- Javascript context is initialized from the script and stored in the module context
 - All the module callable functions are made accessible from the script through the duktape API
-- Callback functions are initialized. When module callback functions are called they inturn trigger a callback function defined in the script. For example, when module recieves a message, `js_on_message` triggers `notify_mesibo_on_message`, which then calls `Mesibo_onMessage` defined in the script.
+- Callback functions are initialized. When module callback functions are called they inturn trigger a callback function defined in the script. For example, when module receives a message, `js_on_message` triggers `notify_mesibo_on_message`, which then calls `Mesibo_onMessage` defined in the script.
 
 
 ### 1. The C/C++ Source file
@@ -28,34 +28,73 @@ The module name is `js`. The C/C++ Source file is `js.c`. The header files `modu
 The JS module is configured as follows:
 ```
 
-module = js{
-script = /path/to/script
-log = 1
+module js{
+    script = /path/to/script
+    log = 1
 }
 
 ```
 For example,
 ```
 
-module = js{
-script = /etc/mesibo/mytest.js
-log = 1
+module js{
+    script = /etc/mesibo/mytest.js
+    log = 1
 }
 
 ```
 
 ### 3. Initializing the JS Module
 
-The JS module is initialized with the Mesibo Module Configuration details - module version, the name of the module and  references to the module callback functions.
+The JS module is initialized with the Mesibo Module Configuration details - module version, the name of the module and references to the module callback functions.
 
 ```
+``` 
+### Storing the configuration in module context
+
+The js configuration parameters are extracted from the module configuration list and stored in the configuration context structure `js_config_t` which is defined as follows:
+
+```cpp
+
+typedef struct js_config_s{
+        char* script;
+        int log; //log level
+        long last_changed; // Time Stamp
+        duk_context* ctx; // JavaScript file context
+} js_config_t;
+
+```
+The script name provided in the configuration is used to allocate the JS context (provide by duktape API). If the file is changed the context is reinitialized. The same context is used to call functions defined in JS.
+
+```cpp
+
+js_config_t* get_config_js(mesibo_module_t* mod){
+
+        js_config_t* jsc = (js_config_t*)calloc(1, sizeof(js_config_t));
+        jsc->script = mesibo_util_getconfig(mod, "script");
+        jsc->log = atoi(mesibo_util_getconfig(mod, "log"));
+        jsc->last_changed = 0; //Initialize TS to zero
+        jsc->ctx = NULL;
+        mesibo_log(mod, jsc->log, "Javascript Module Configured : script %s log %d\n", jsc->script, jsc->log);
+
+        return jsc;
+}
+
+```
+
+### 4. JS Callback functions
+To call functions in Javascript from C, this example uses the embeddable JS Engine Duktape. It is a good idea to read the 
+[Getting Started with Duktape](https://duktape.org) guide to understand how this is achieved. Here, we will explain how `notify_on_message` calls `Mesibo_onMessage` in JavaScript.
+
+```cpp
+
 int mesibo_module_js_init(mesibo_int_t version, mesibo_module_t *m, mesibo_uint_t len) {
 
         MESIBO_MODULE_SANITY_CHECK(m, version, len);
 
         if(m->config) {
                 js_config_t* jsc = get_config_js(m);
-                if(jsc == NULL){
+                if(NULL == jsc){
                         mesibo_log(m, MODULE_LOG_LEVEL_0VERRIDE, "%s : Missing Configuration\n", m->name);
                         return MESIBO_RESULT_FAIL;
                 }
@@ -80,46 +119,7 @@ int mesibo_module_js_init(mesibo_int_t version, mesibo_module_t *m, mesibo_uint_
 
         return MESIBO_RESULT_OK;
 }
-	 
- ``` 
-### Storing the configuration in module context
-
-The js configuration parameters is extracted from module configuration list and stored in the configuration context structure `js_config_t` which is defined as follows:
-
-```cpp
-
-typedef struct js_config_s{
-        char* script;
-        int log; //log level
-        long last_changed; // Time Stamp
-        duk_context* ctx; // JavaScript file context
-} js_config_t;
-
-```
-The script name provided in the configuration, is used to allocate the JS context (provide by duktape API). If the file is changed the context is reinitialized. The same context is used to call functions defined in JS.
-
-```cpp
-
-js_config_t* get_config_js(mesibo_module_t* mod){
-
-        js_config_t* jsc = (js_config_t*)calloc(1, sizeof(js_config_t));
-        jsc->script = mesibo_util_getconfig(mod, "script");
-        jsc->log = atoi(mesibo_util_getconfig(mod, "log"));
-        jsc->last_changed = 0; //Initialize TS to zero
-        jsc->ctx = NULL;
-        mesibo_log(mod, jsc->log, "Javascript Module Configured : script %s log %d\n", jsc->script, jsc->log);
-
-        return jsc;
-}
-
-```
-
-### 4. JS Callback functions
-To call functions in Javascipt from C, this example uses the embeddable JS Engine Duktape. It is a good idea to read the 
-[Getting Started with Duktape](https://duktape.org) guide to understand how this is achieved. Here, we will explain how `notify_on_message` calls `Mesibo_onMessage` in JavaScript.
-
-```cpp
-
+     
 static mesibo_int_t  js_on_message(mesibo_module_t *mod, mesibo_message_params_t *p,
                 const char *message, mesibo_uint_t len) {
 
@@ -133,7 +133,7 @@ static mesibo_int_t  js_on_message(mesibo_module_t *mod, mesibo_message_params_t
 }
 
 ```
-`notify_mesibo_on_message` which will push all the parameters as duktape objects into the duktape call stack and then evaluate the function `Mesibo_onMessage` which is declared in the Javscript file(Refer `mesibo_test.js`)  
+`notify_mesibo_on_message` which will push all the parameters as duktape objects into the duktape call stack and then evaluate the function `Mesibo_onMessage` which is declared in the Javascript file(Refer `mesibo_test.js`)  
 
 ```cpp
 
@@ -181,7 +181,7 @@ Similarly `notify_mesibo_on_message_status`, `notify_mesibo_on_http_response` ar
 ### 5. Calling Mesibo Module helper functions
 
 The duktape interface is used to call C functions defined in the module source file from Javascript.
-Function paramters are read from the script context and then converted to appropriate C data types. All callable functions /helper functions must be loaded into context before being called in the script
+Function parameters are read from the script context and then converted to appropriate C data types. All callable functions /helper functions must be loaded into context before being called in the script
 
 ```cpp
 
@@ -229,7 +229,7 @@ In Javascript(Refer `mesibo_test.js`), the corresponding `mesibo_message` functi
 function Mesibo_onMessage(mod, p, message, len, temp) {
         var msg_log = "Recieved Message" + message + +"from " +p.from +"to " +p.to;
         mesibo_log(mod, msg_log, msg_log.length + len);
-        var params = Object.assign({},p);
+        var params = Object.assign({}, p);
         params.to = p.from;
         params.from = p.to;
         params.expiry = 3600;
@@ -245,7 +245,7 @@ function Mesibo_onMessage(mod, p, message, len, temp) {
 
 ```
 ### 6. Compiling JS module
-To compile js module, open the sample `MakeFile` provided. Change the `MODULE` to `chatbot`.
+To compile the js module, open the sample `MakeFile` provided. Change the `MODULE` to `chatbot`.
 
 For example.
 ```
