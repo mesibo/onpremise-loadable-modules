@@ -275,47 +275,56 @@ Once the response is received from DialogFlow, the module needs to send it to to
 ```cpp
 typedef struct http_context_s {
         mesibo_module_t *mod;
-        mesibo_message_params_t *params;
+	mesibo_message_params_t* params;
         char *from;
         char *to;
+	char* post_data; //Cleanup after HTTP request is complete
+        mesibo_int_t status;
+        char response_type[HTTP_RESPONSE_TYPE_LEN];
         // To copy data in response
         char buffer[HTTP_BUFFER_LEN];
         int datalen;
-         
-    char* post_data; //For cleanup after HTTP request is complete
 } http_context_t;
+
 ```                    
 
 The function to process the message and send an HTTP request to Dialogflow is as follows:
 
 ```cpp
-static int chatbot_process_message(mesibo_module_t *mod, mesibo_message_params_t *p,
-                const char *message, mesibo_uint_t len) {
+static mesibo_int_t chatbot_process_message(mesibo_module_t *mod, mesibo_message_params_t *p,
+		const char *message, mesibo_uint_t len) {
 
-        chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
+	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
 
-        char post_url[HTTP_POST_URL_LEN_MAX];
-        sprintf(post_url, "%s/%lu:detectIntent", cbc->post_url, p->id); //Pass Message ID as Session ID
-        char* raw_post_data;
-        asprintf(&raw_post_data, "{\"queryInput\":{\"text\":{\"text\":\"%.*s\", \"languageCode\":\"%s\"}}}",
-                        (int)len, message, cbc->language);
+	char post_url[HTTP_POST_URL_LEN_MAX];
+	sprintf(post_url, "%s/%lu:detectIntent", cbc->post_url, p->id); //Pass Message ID as Session ID
+	char* raw_post_data; 
+	asprintf(&raw_post_data, "{\"queryInput\":{\"text\":{\"text\":\"%.*s\", \"languageCode\":\"%s\"}}}",
+			(int)len, message, cbc->language);
 
-        http_context_t *http_context =
-                (http_context_t *)calloc(1, sizeof(http_context_t));
-        http_context->mod = mod;
-        http_context->params = p;
-        http_context->from = strdup(p->from);
-        http_context->to = strdup(p->to);
-    http_context->post_data = raw_post_data;
+	http_context_t *http_context =
+		(http_context_t *)calloc(1, sizeof(http_context_t));
+	http_context->mod = mod;
+	http_context->params = p;
+	http_context->from = strdup(p->from);
+	http_context->to = strdup(p->to);
+	http_context->post_data = raw_post_data;
 
-        mesibo_log(mod, 0, "%s %s %s %s \n", post_url, raw_post_data, cbc->chatbot_http_opt->extra_header,
-                        cbc->chatbot_http_opt->content_type);
+	mesibo_log(mod, cbc->log , "%s %s %s %s \n", post_url, raw_post_data, cbc->chatbot_http_req->extra_header,
+			cbc->chatbot_http_req->content_type);
 
-        mesibo_http(mod, post_url, raw_post_data, chatbot_http_callback,
-                        (void *)http_context, cbc->chatbot_http_opt);
+	cbc->chatbot_http_req->url = post_url;
+	cbc->chatbot_http_req->post = raw_post_data;
+	
+	cbc->chatbot_http_req->on_data = chatbot_http_on_data_callback;
+	cbc->chatbot_http_req->on_status = chatbot_http_on_status_callback;
+	cbc->chatbot_http_req->on_close = chatbot_http_on_close_callback;
 
-        return MESIBO_RESULT_OK;
+	mesibo_util_http(cbc->chatbot_http_req, (void *)http_context);
+
+	return MESIBO_RESULT_OK;
 }
+
 ```
 
 ### 5. Extracting the response-text
@@ -329,58 +338,84 @@ The message-id of the query message is passed as reference-id for the response m
 
 ```cpp
 
-static int chatbot_http_callback(void *cbdata, mesibo_int_t state,
-        mesibo_int_t progress, const char *buffer,
-        mesibo_int_t size) {
-    http_context_t *b = (http_context_t *)cbdata;
-    mesibo_module_t *mod = b->mod;
-    chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
+static mesibo_int_t chatbot_http_on_data_callback(void *cbdata, mesibo_int_t state,
+		mesibo_int_t progress, const char *buffer,
+		mesibo_int_t size) {
+	http_context_t *b = (http_context_t *)cbdata;
+	mesibo_module_t *mod = b->mod;
 
-    mesibo_message_params_t* params = b->params;
+	
+	if (progress < 0) {
+		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "Error in http callback \n");
+		mesibo_chatbot_destroy_http_context(b);
+		return MESIBO_RESULT_FAIL;
+	}
 
-    if (0 > progress) {
-        mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "Error in http callback \n");
-        mesibo_chatbot_destroy_http_context(b);
-        return MESIBO_RESULT_FAIL;
-    }
+	if (MODULE_HTTP_STATE_RESPBODY != state) {
+		return MESIBO_RESULT_OK;
+	}
 
-    if (MODULE_HTTP_STATE_RESPBODY != state) {
-        if(size)
-            mesibo_log(mod, cbc->log, "Exit http callback %.*s \n", size, buffer);
-        return MESIBO_RESULT_OK;
-    }
+	if ((MODULE_HTTP_STATE_RESPBODY == state) && buffer!=NULL && size!=0 ) {
+		if(HTTP_BUFFER_LEN < (b->datalen + size )){
+			mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE,
+					"Error in http callback : Buffer overflow detected \n", mod->name);
+			return MESIBO_RESULT_FAIL;
+		}
+		memcpy(b->buffer + b->datalen, buffer, size);
+		b->datalen += size;
+	}
 
-    if ((0 < progress) && (MODULE_HTTP_STATE_RESPBODY == state)) {
-        if(HTTP_BUFFER_LEN < (b->datalen + size )){    
-            mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE,
-                    "Error in http callback : Buffer overflow detected \n", mod->name);
-            return MESIBO_RESULT_FAIL;
-        }
-        memcpy(b->buffer + b->datalen, buffer, size);
-        b->datalen += size;
-    }
+	if (100 == progress) {
+		//Response complete
+		return MESIBO_RESULT_OK;
+	}
 
-    if (100 == progress) {
-        mesibo_log(mod, cbc->log, "%.*s", b->datalen, b->buffer);
-        mesibo_message_params_t p;
-        memset(&p, 0, sizeof(mesibo_message_params_t));
-        p.id = rand();
-        p.refid = params->id;
-        p.aid = params->aid;
-        p.from = b->to;
-        p.to = b->from; // User adress who sent the query is the recipient
-        p.expiry = 3600;
-
-        char* extracted_response = mesibo_util_json_extract(b->buffer , "fulfillmentText", NULL);
-
-        mesibo_message(mod, &p, extracted_response , strlen(extracted_response));
-        mesibo_chatbot_destroy_http_context(b);
-
-        return MESIBO_RESULT_OK;
-    }
-
-    return MESIBO_RESULT_OK;
+	return MESIBO_RESULT_OK;
 }
+
+mesibo_int_t chatbot_http_on_status_callback(void *cbdata, mesibo_int_t status, const char *response_type){
+
+	http_context_t *b = (http_context_t *)cbdata;
+	if(!b) return MESIBO_RESULT_FAIL;
+	mesibo_module_t* mod = b->mod;
+	if(!mod) return MESIBO_RESULT_FAIL;
+	chatbot_config_t* cbc = (chatbot_config_t*)mod->ctx;
+
+	b->status = status;
+	if(NULL != response_type){
+		memcpy(b->response_type, response_type, strlen(response_type));
+		mesibo_log(mod, cbc->log, "status: %d, response_type: %s \n", (int)status, response_type);
+	}
+	return MESIBO_RESULT_OK;
+}
+
+void chatbot_http_on_close_callback(void *cbdata,  mesibo_int_t result){
+	
+	http_context_t *b = (http_context_t *)cbdata;
+	mesibo_module_t *mod = b->mod;
+	
+	if(MESIBO_RESULT_FAIL == result){
+		mesibo_log(mod, MODULE_LOG_LEVEL_0VERRIDE, "Invalid HTTP response \n");
+		return;
+	}
+	
+	//Send response and cleanup
+	
+	mesibo_message_params_t p;
+	memset(&p, 0, sizeof(mesibo_message_params_t));
+	p.id = rand();
+	p.refid = b->params->id;
+	p.aid = b->params->aid;
+	p.from = b->to;
+	p.to = b->from; // User adress who sent the query is the recipient
+	p.expiry = 3600;
+
+	char* extracted_response = mesibo_util_json_extract(b->buffer , "fulfillmentText", NULL);
+
+	mesibo_message(mod, &p, extracted_response , strlen(extracted_response));
+	mesibo_chatbot_destroy_http_context(b);
+}
+
 ```
 
 ### 6. Compiling the chatbot module

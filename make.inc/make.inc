@@ -1,15 +1,15 @@
-CC = gcc
+CC = g++
 FLAGS        = # -std=gnu99 -Iinclude
-CFLAGS       = -I../include -DMESIBO_MODULE=$(MODULE) -fPIC -g #-pedantic -Wall -Wextra -ggdb3
-LDFLAGS      = -shared 
+CFLAGS       = -I../include $(EXTRA_CCFLAGS) -DMESIBO_MODULE=$(MODULE) -fPIC -g -Wall #-pedantic -Wextra -ggdb3
+LDFLAGS      = -shared $(EXTRA_LDFLAGS)
 RM = rm -f
 
 ifndef OBJPATH
 OBJPATH=../bin/$(MODULE)
 endif
 
-SRC    = $(wildcard *.c)
-OBJ := $(patsubst %.c, $(OBJPATH)/%.o, $(SRC))
+SRC    = $(wildcard *.cpp)
+OBJ := $(patsubst %.cpp, $(OBJPATH)/%.o, $(SRC))
 
 
 DEBUGFLAGS   = -O0 -D _DEBUG
@@ -22,13 +22,13 @@ all: $(TARGET)
 clean: 
 	$(RM) $(OBJ) $(TARGET)
 
-$(OBJPATH)/%.o: %.c $(MAKEFILEDEP)
+$(OBJPATH)/%.o: %.cpp $(MAKEFILEDEP)
 	@mkdir -p $(OBJPATH)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(OBJECTS): ../include/module.h
 
-$(TARGET): $(OBJ) ../include/module.h
+$(TARGET): $(OBJ) ../include/module.h Makefile
 	@mkdir -p /usr/lib64/mesibo/
 	$(CC) $(FLAGS) $(LDFLAGS) $(DEBUGFLAGS) -o $(TARGET) $(OBJ)
 

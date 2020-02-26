@@ -124,28 +124,156 @@ The response to the HTTP request is available through the callback function `mes
 ```cpp
 
 static mesibo_int_t skeleton_http(mesibo_module_t *mod) {
-        mesibo_http(mod, "https://example.com/api.php", "op=test", mesibo_module_http_data_callback, mod, NULL);
-        return MESIBO_RESULT_OK;
+	http_context_t* cbdata = (http_context_t*)calloc(1, sizeof(http_context_t));
+	cbdata->mod = mod;
+	mesibo_http_t req;
+	memset(&req, 0, sizeof(req));
+	req.url = "https://example.com/api.php"; //API endpoint
+	req.post = "op=userdel&token=123434343xxxxxxxxx&uid=456"; // POST Request Data
+	req.on_data = mesibo_http_on_data_callback;
+	req.on_status = mesibo_http_on_status_callback;
+	req.on_close = mesibo_http_on_close_callback;
+	mesibo_util_http(&req, cbdata);
+
+	return MESIBO_RESULT_OK;
 }
 
-
 ```
-### mesibo_module_http_data_callback : The HTTP callback function
+### mesibo_http_on_data_callback: The HTTP callback function
 
 The response to the HTTP request is received through this callback function. In this example, the `cbdata` contains the pointer to `mod` which is available after casting it from `void*` to `mesibo_module_t*`.
 
-The `progress` of the response being received is logged. If `progress` reaches `100` it indicates that the complete response has been received.
+The `progress` of the response being received is logged. If `progress` reaches `100` it indicates that the complete response has been received. If the HTTP response in complete, then the `on_close` callback will be called.
 
 ```cpp
+static mesibo_int_t mesibo_http_on_data_callback(void *cbdata, mesibo_int_t state, mesibo_int_t progress, const char *buffer, mesibo_int_t size) {
+	http_context_t *b = (http_context_t*)cbdata;
+	mesibo_module_t *mod = b->mod;
+	
+	mesibo_log(mod, 0, " http progress %d\n", progress);
+	if (progress < 0) {
+		mesibo_log(mod, 0, " Error in http callback \n");
+
+		// cleanup
+
+		return -1;
+	}
+
+	if (state != MODULE_HTTP_STATE_RESPBODY) {
+		return 0;
+	}
+
+	memcpy(b->buffer + b->datalen, buffer, size);
+	b->datalen += size;
+
+	if (progress == 100) {
+		// process it ...
+		mesibo_log(mod, 0 ,"%.*s", b->datalen, b->buffer);
+	}
 
 
-int mesibo_module_http_data_callback(void *cbdata, mesibo_int_t state, mesibo_int_t progress, const char *buffer, mesibo_int_t size) {
-        mesibo_module_t *mod = (mesibo_module_t *)cbdata;
-        mesibo_log(mod, 1, " http progress %d\n", progress);
-        return MESIBO_RESULT_OK;
+
+	return MESIBO_RESULT_OK;
 }
 
+mesibo_int_t mesibo_http_on_status_callback(void *cbdata, mesibo_int_t status, const char *response_type){
+
+	http_context_t *b = (http_context_t *)cbdata;
+	if(!b) return MESIBO_RESULT_FAIL;
+	mesibo_module_t* mod = b->mod;
+	if(!mod) return MESIBO_RESULT_FAIL;
+
+	b->status = status;
+	if(NULL != response_type){
+		memcpy(b->response_type, response_type, strlen(response_type));
+		mesibo_log(mod, 0, "status: %d, response_type: %s \n", (int)status, response_type); 
+	}
+	
+	return MESIBO_RESULT_OK;
+}
+
+void mesibo_http_on_close_callback(void *cbdata,  mesibo_int_t result){
+	//Complete response and close connection
+
+}
 ```
+
+### 8. Making a socket connection
+You can connect to a socket host on a specified port and perform various Socket I/O operations like writing to socket, receiving data from the socket, etc.You can also define various callbacks to be called to handle events like when, socket connection is initiates, data is wrriten to the socket, data is received at the socket, socket connection is closed, etc. 
+
+```cpp
+static mesibo_int_t skeleton_socket(mesibo_module_t *mod) {
+
+	socket_context_t* cbdata = (socket_context_t*)calloc(1, sizeof(socket_context_t));
+	cbdata->mod = mod;
+	mesibo_socket_t sock;
+	memset(&sock, 0, sizeof(sock));
+	//sock.ws_protocol = "ws://echo.websocket.org";
+	sock.url = "sock://mesibo.com";
+	sock.verify_host = 1; 
+	sock.on_connect = mesibo_socket_onconnect;
+	sock.on_write = mesibo_socket_onwrite;
+	sock.on_data = mesibo_socket_ondata;
+	sock.on_close = mesibo_socket_onclose;
+
+	mesibo_int_t rv = mesibo_util_socket_connect(&sock, cbdata);
+	mesibo_log(mod, 0 , "connecting.. %d\n", rv);
+	return rv;
+}
+```
+### Socket Callbacks
+```cpp
+mesibo_int_t mesibo_socket_ondata(void *cbdata, const char *data, mesibo_int_t len){
+	fprintf(stderr, "%s called \n", "mesibo_socket_ondata");
+	
+	socket_context_t *b = (socket_context_t*)cbdata;
+	if(!b) return MESIBO_RESULT_FAIL;
+	mesibo_module_t* mod = b->mod;
+	if(!mod) return MESIBO_RESULT_FAIL;
+	mesibo_log(mod, 0, "%s called", "mesibo_socket_ondata");
+	
+	if(len)	
+		mesibo_log(mod, 0, "Received socket data: %.*s", len, data);
+	
+	return MESIBO_RESULT_OK;
+}
+
+void mesibo_socket_onconnect(void *cbdata, mesibo_int_t asock, mesibo_int_t fd){
+
+	socket_context_t *b = (socket_context_t*)cbdata;
+	if(!b) return ;
+	mesibo_module_t* mod = b->mod;
+	if(!mod) return;
+	
+	mesibo_log(mod, 0, "Connected to socket sock:%d, fd: %d\n", (int)asock, (int)fd);	
+	const char* test_data = "GET / HTTP/1.0\r\nHost: example.com\r\nConnection: close\r\n\r\n";
+	mesibo_int_t len = strlen(test_data);
+	mesibo_log(mod, 0, "Writing to socket \n %d %d %s\n", (int)asock, len, test_data);	
+	mesibo_int_t rv = mesibo_util_socket_write(asock, test_data, len);
+	mesibo_log(mod, 0 , "write returned %d \n", rv);
+	return ;
+}
+
+void mesibo_socket_onwrite(void *cbdata){
+	socket_context_t *b = (socket_context_t*)cbdata;
+	if(!b) return ;
+	mesibo_module_t* mod = b->mod;
+	if(!mod) return;
+	//Process callback for onwrite
+	mesibo_log(mod, 0, "%s called \n", "mesibo_socket_onwrite");
+}
+
+void mesibo_socket_onclose(void *cbdata, mesibo_int_t type){
+	//Process callback for onclose
+	socket_context_t *b = (socket_context_t*)cbdata;
+	if(!b) return ;
+	mesibo_module_t* mod = b->mod;
+	if(!mod) return;
+	//Process callback for onwrite
+	mesibo_log(mod, 0, "%s called, type: %d \n", "mesibo_socket_onclose", (int)type);
+}
+```
+
 
 ### Compiling the skeleton module
 
@@ -166,16 +294,16 @@ sudo make
 To load your skeleton  module provide the configuration in `/etc/mesibo/mesibo.conf`. You can copy the configuration from `sample.conf` into `/etc/mesibo/mesibo.conf`and modify values accordingly. 
 
 Mount the path to the module while running mesibo container. If `mesibo_mod_skeleton.so` is located at `/path/to/mesibo_mod_skeleton.so`, mount the directory as 
-```
- -v path/to/mesibo_mod_skeleton.so:/path/to/mesibo_mod_skeleton.so
 
+```
+-v path/to/mesibo_mod_skeleton.so:/path/to/mesibo_mod_skeleton.so
 ```
 
 For example, if `mesibo_mod_skeleton.so` is located at `/usr/lib64/mesibo/`
+
 ```
 sudo docker run  -v /certs:/certs -v  /usr/lib64/mesibo/:/usr/lib64/mesibo/ \
--v /etc/mesibo:/etc/mesibo
--net=host -d  \ 
-mesibo/mesibo <app token>
-
+	     -v /etc/mesibo:/etc/mesibo
+	     -net=host -d  \ 
+	     mesibo/mesibo <app token>
 ```

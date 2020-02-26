@@ -1,4 +1,4 @@
-# Loadable Modules - add your own custom features to Mesibo
+# Loadable Modules - Add your own custom features to Mesibo
 
 This repository contains the Sample Loadable Modules that you can use as a reference, to quickly see Mesibo Modules in action! 
 
@@ -14,7 +14,9 @@ The complete documentation for Mesibo Modules is available [here](https://mesibo
 
 - [Chatbot](https://github.com/mesibo/onpremise-loadable-modules/tree/master/chatbot) Chatbot module to analyze messages using various AI and machine learning tools like Tensorflow, Dialogflow, etc. and send an automatic reply. Sample Chatbot Module uses [Dialogflow](https://dialogflow.com)
 
-- [Javascript](https://github.com/mesibo/onpremise-loadable-modules/tree/master/js) JavaScript Module to load and call functions in [ECMAScript](http://www.ecma-international.org/ecma-262/5.1/). Sample Javascript Module uses the embeddable JS Engine [Duktape](https://duktape.org)
+- [FCGI](https://github.com/mesibo/onpremise-loadable-modules/tree/master/fcgi) FCGI module to interface with a messaging backend and run scripts on your web server. 
+
+- [V8](https://github.com/mesibo/onpremise-loadable-modules/tree/master/js) V8 Module to load and call functions in [ECMAScript](http://www.ecma-international.org/ecma-262/5.1/). Sample V8 Module uses the embeddable JS Engine [V8](https://v8.dev)
 
 ## Compiling Modules
 To compile a Mesibo module, go to module directory and run make from the module directory.
